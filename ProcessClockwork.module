@@ -1,0 +1,131 @@
+<?php 
+
+require "autoloader.php";
+
+
+class ProcessClockwork extends Process {
+
+	public $storage;
+	public $clockwork;
+	protected $clockworkRequest = false;
+
+	public static function getModuleInfo() {
+        return array(
+            'title' => __('Clockwork PHP Debug'),
+            'summary' => __('Adds support for clockwork PHP debug tool'),
+            'href' => 'http://modules.processwire.com/modules/process-clockwork/',
+            'author' => 'Adam Spruijt',
+            'version' => '1.0.0',
+            'singular' => true,
+            'autoload' => true,
+            'icon' => 'code'
+        ); 
+    }
+
+
+	/**
+	* Initialization function called before any execute functions
+	*/
+    public function init() {
+
+
+    	$this->clockwork = new Clockwork\Clockwork;
+
+		$this->clockwork->addDataSource(new Clockwork\DataSource\PhpDataSource());
+
+		$this->storage = new Clockwork\Storage\FileStorage("{$this->config->paths->assets}clockwork/");
+		$this->clockwork->setStorage($this->storage);
+
+		$this->wire->set("clockwork", $this);
+
+		header("X-Clockwork-Id: " . $this->clockwork->getRequest()->id);
+		header("X-Clockwork-Version: " . Clockwork\Clockwork::VERSION);
+
+		$this->setupClockworkRequestHooks();
+		
+    }
+
+
+    protected function setupClockworkRequestHooks(){
+
+
+
+
+
+
+
+
+		$this->addHookAfter("ProcessPageView::finished", function(){
+			$this->clockwork->resolveRequest();
+			$this->clockwork->storeRequest();
+		});
+
+		// log page render
+		$this->addHookBefore("Page::render", function($event){
+			$page = $event->object;
+			$this->clockwork->startEvent("page_render_{$page->id}", "Page ({$page->id}) rendered.");
+		});
+		$this->addHookAfter("Page::render", function($event){
+			$page = $event->object;
+			$this->clockwork->endEvent("page_render_{$page->id}");
+		});
+	
+		
+		// log pages find (make conditional)
+		// $this->addHookBefore("Pages::find", function($event){
+		// 	$selector = $event->arguments(0);
+		// 	wire("clockwork")->startEvent("pages_find $selector", "\$pages->find('$selector')");
+		// });
+		// $this->addHookAfter("Pages::find", function($event){
+		// 	$selector = $event->arguments(0);
+		// 	wire("clockwork")->endEvent("pages_find $selector");
+		// });
+	
+    }
+
+
+    public function ___install(){
+
+    	$srcFolder = dirname(__FILE__) . '/__clockwork/';
+		$dstFolder = "{$this->config->paths->root}__clockwork/";
+
+		// create the __clockwork folder
+		if (!file_exists($dstFolder)) {
+		    wireMkdir($dstFolder);
+		}
+
+		// get files in folder
+		
+
+		$copyerror = false;
+		$files = scandir($srcFolder);
+		foreach ($files as $filename) {
+			if ($filename == "." || $filename == "..") continue;
+
+			if(@copy("{$srcFolder}{$filename}", "{$dstFolder}{$filename}")){
+				$this->message("Copied $filename to $dstFolder");
+			}  
+			else {
+				$copyerror = true;
+				$this->error("Unable to copy $filename to $dstFolder");
+			} 
+		}
+
+		if ($error) {
+			$this->message("Please makes sure all files from $srcFolder are available in $dstFolder");
+		}
+
+    }
+
+
+
+    public function ___uninstall(){
+
+  		// remove __clockwork folder
+		$dstFolder = "{$this->config->paths->root}__clockwork";
+		wireRmdir($dstFolder, true);
+
+    }
+
+
+}
