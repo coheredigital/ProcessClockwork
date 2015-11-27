@@ -69,8 +69,20 @@ class ProcessClockwork extends Process {
 			$page = $event->object;
 			$this->clockwork->endEvent("page_render_{$page->id}");
 		});
+
+
+		$this->addHookAfter("WireLog::save", function($event){
+			$name = $event->arguments(0);
+			$txt = $event->arguments(1);
+			$options = $event->arguments(2);
+			// $page = $event->object;
+			var_dump($options);
+			$this->clockwork->info("$name: $txt");
+		});
 	
 		
+
+
 		// log pages find (make conditional)
 		// $this->addHookBefore("Pages::find", function($event){
 		// 	$selector = $event->arguments(0);
