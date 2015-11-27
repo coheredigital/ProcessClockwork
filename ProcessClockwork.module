@@ -75,8 +75,6 @@ class ProcessClockwork extends Process {
 			$name = $event->arguments(0);
 			$txt = $event->arguments(1);
 			$options = $event->arguments(2);
-			// $page = $event->object;
-			var_dump($options);
 			$this->clockwork->info("$name: $txt");
 		});
 	
