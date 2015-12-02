@@ -1,13 +1,12 @@
-<?php 
-
-require "autoloader.php";
-
+<?php require "autoloader.php";
 
 class ProcessClockwork extends Process {
 
+	const table_name = 'process_clockwork';
+
 	public $storage;
-	public $clockwork;
-	protected $clockworkRequest = false;
+	protected $clockwork;
+	public $storeRequest = true;
 
 	public static function getModuleInfo() {
         return array(
@@ -23,20 +22,30 @@ class ProcessClockwork extends Process {
     }
 
 
+
+
 	/**
 	* Initialization function called before any execute functions
 	*/
     public function init() {
 
-
     	$this->clockwork = new Clockwork\Clockwork;
 
-		$this->clockwork->addDataSource(new Clockwork\DataSource\PhpDataSource());
-
-		$this->storage = new Clockwork\Storage\FileStorage("{$this->config->paths->assets}clockwork/");
+		// MySQL storage
+		$pdo = new PDO(
+			"mysql:host={$this->config->dbHost};dbname={$this->config->dbName}",
+			$this->config->dbUser,
+			$this->config->dbPass
+		);
+		$this->storage = new Clockwork\Storage\SqlStorage($pdo, self::table_name);
 		$this->clockwork->setStorage($this->storage);
 
 		$this->wire->set("clockwork", $this);
+
+		if (!$this->storeRequest) return;
+
+		// base PHP DataSource
+		$this->clockwork->addDataSource(new Clockwork\DataSource\PhpDataSource());
 
 		header("X-Clockwork-Id: " . $this->clockwork->getRequest()->id);
 		header("X-Clockwork-Version: " . Clockwork\Clockwork::VERSION);
@@ -48,53 +57,111 @@ class ProcessClockwork extends Process {
 
     protected function setupClockworkRequestHooks(){
 
+		// $this->addHookAfter("ProcessPageView::finished", $this, "saveRequestData");
 
-
-
-
-
-
-
-		$this->addHookAfter("ProcessPageView::finished", function(){
-			$this->clockwork->resolveRequest();
-			$this->clockwork->storeRequest();
-		});
-
-		// log page render
+		// log page render timings
 		$this->addHookBefore("Page::render", function($event){
 			$page = $event->object;
+			$this->clockwork->info($page);
 			$this->clockwork->startEvent("page_render_{$page->id}", "Page ({$page->id}) rendered.");
 		});
+
 		$this->addHookAfter("Page::render", function($event){
 			$page = $event->object;
 			$this->clockwork->endEvent("page_render_{$page->id}");
 		});
 
+		// log template render timings
+		$this->addHookBefore("TemplateFile::render", function($event){
+			$file = $event->object;
+			$this->clockwork->info($page);
+			$this->clockwork->startEvent("$file", "TemplateFile: '{$file}' rendered");
+		});
 
-		$this->addHookAfter("WireLog::save", function($event){
-			$name = $event->arguments(0);
-			$txt = $event->arguments(1);
-			$options = $event->arguments(2);
-			$this->clockwork->info("$name: $txt");
+		$this->addHookAfter("TemplateFile::render", function($event){
+			$file = $event->object;
+			$this->clockwork->endEvent("$file");
+		});
+
+
+		$this->addHookAfter("WireLog::save", $this, "logToClockwork");
+	
+
+		// log pages finds (make conditional)
+		$this->addHookBefore("Pages::find", function($event){
+			$selector = $event->arguments(0);
+			$this->clockwork->startEvent("pages_find $selector", "\$pages->find('$selector')");
+		});
+		$this->addHookAfter("Pages::find", function($event){
+			$selector = $event->arguments(0);
+			$this->clockwork->endEvent("pages_find $selector");
 		});
 	
-		
+    }
 
+    protected function logToClockwork($event){
+    	
 
-		// log pages find (make conditional)
-		// $this->addHookBefore("Pages::find", function($event){
-		// 	$selector = $event->arguments(0);
-		// 	wire("clockwork")->startEvent("pages_find $selector", "\$pages->find('$selector')");
-		// });
-		// $this->addHookAfter("Pages::find", function($event){
-		// 	$selector = $event->arguments(0);
-		// 	wire("clockwork")->endEvent("pages_find $selector");
-		// });
+		$name = $event->arguments(0);
+		$message = $event->arguments(1);
+		$options = $event->arguments(2);
+
+		switch ($name) {
+			// built in PW log methods
+			case 'exceptions':
+				$this->clockwork->critical("$message");
+				// save and close
+				$this->saveRequestData();
+				break;
+
+			case 'errors':
+				$this->clockwork->error("$message");
+				break;
+			case 'messages':
+				$this->clockwork->info("$message");
+				break;
+
+			// try to catch logs that match build in Clockwork methods 
+			case 'notice':
+				$this->clockwork->warning("$message");
+				break;
+			case 'warning':
+				$this->clockwork->warning("$message");
+				break;
+			case 'debug':
+				$this->clockwork->debug("$message");
+				break;
+			// fall back include name, to make more identifiable	
+			default:
+				$this->clockwork->info("$name : $message");
+				break;
+		}
 	
+    }
+
+    protected function saveRequestData(){
+
+    	if (!$this->storeRequest) return;
+
+		$this->clockwork->resolveRequest();
+		$this->clockwork->storeRequest();
+    }
+
+    protected function cleanup(){
+    	$date = new DateTime("-{$this->storage_period}");
+		$date = (int) $date->format("U");
+
+    	$this->database->query("DELETE * FROM " . self::table_name . " WHERE time > $date");
     }
 
 
     public function ___install(){
+		$this->storage = new Clockwork\Storage\SqlStorage(new PDO(
+			"mysql:host={$this->config->dbHost};dbname={$this->config->dbName}",
+			$this->config->dbUser,
+			$this->config->dbPass
+		), self::table_name);
+    	$this->storage->initialize();
 
     	$srcFolder = dirname(__FILE__) . '/__clockwork/';
 		$dstFolder = "{$this->config->paths->root}__clockwork/";
@@ -132,10 +199,16 @@ class ProcessClockwork extends Process {
     public function ___uninstall(){
 
   		// remove __clockwork folder
-		$dstFolder = "{$this->config->paths->root}__clockwork";
-		wireRmdir($dstFolder, true);
+		wireRmdir("{$this->config->paths->root}__clockwork", true);
+
+		// remove clockwork request logs
+		$this->database->query("DROP TABLE " . self::table_name);
 
     }
+
+    public function __destruct() {
+       $this->saveRequestData();
+   	}
 
 
 }
