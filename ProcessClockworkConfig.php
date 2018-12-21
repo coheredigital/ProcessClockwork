@@ -1,5 +1,7 @@
 <?php 
 
+namespace ProcessWire;
+
 class ProcessClockworkConfig extends ModuleConfig {
 
 	public function __construct() {

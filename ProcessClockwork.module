@@ -1,12 +1,15 @@
-<?php require "autoloader.php";
+<?php 
+
+namespace ProcessWire;
+
 
 class ProcessClockwork extends Process {
 
-	const table_name = 'process_clockwork';
+	// const table_name = 'process_clockwork';
 
-	public $storage;
+	protected $storage;
 	protected $clockwork;
-	public $storeRequest = true;
+	protected $storeRequest = true;
 
 	public static function getModuleInfo() {
         return array(
@@ -32,12 +35,13 @@ class ProcessClockwork extends Process {
     	$this->clockwork = new Clockwork\Clockwork;
 
 		// MySQL storage
-		$pdo = new PDO(
-			"mysql:host={$this->config->dbHost};dbname={$this->config->dbName}",
-			$this->config->dbUser,
-			$this->config->dbPass
-		);
-		$this->storage = new Clockwork\Storage\SqlStorage($pdo, self::table_name);
+		// $pdo = new PDO(
+		// 	"mysql:host={$this->config->dbHost};dbname={$this->config->dbName}",
+		// 	$this->config->dbUser,
+		// 	$this->config->dbPass
+		// );
+		// $this->storage = new Clockwork\Storage\SqlStorage($pdo, self::table_name);
+		$this->storage = new Clockwork\Storage\FileStorage($this->config->paths->assets . "clockwork/");
 		$this->clockwork->setStorage($this->storage);
 
 		$this->wire->set("clockwork", $this);
